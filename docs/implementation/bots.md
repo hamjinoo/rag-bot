@@ -1,183 +1,175 @@
-# 챗봇 연동 가이드 (텔레그램·카카오)
+# 챗봇 연동 가이드 (텔레그램 · 카카오)
 
-## 개요
-이 문서는 FastAPI 기반 RAG 백엔드에 **텔레그램 봇**과 **카카오 i 오픈빌더**를 연결하는 과정을 단계별로 안내합니다. 공통 파이프라인을 재사용하면서 보안 검증, 에러 처리, 운영 체크리스트까지 포함합니다.
+> **목표**: 동일한 RAG 파이프라인을 활용해 텔레그램과 카카오 i 오픈빌더 채널을 모두 지원한다.
 
 ---
 
-## 1. 텔레그램 봇 연동
+## 🎯 학습 목표
 
-### 1.1 사전 준비
-1. **BotFather**에게 `/newbot` 전송 → 봇 이름, 사용자명 설정
-2. 발급받은 토큰을 `.env`에 저장
-   ```
-   TELEGRAM_BOT_TOKEN=123456:ABC-...
-   TELEGRAM_WEBHOOK_URL=https://your-domain.com/telegram/webhook
-   ```
-3. 서버에 HTTPS 도메인 준비 (ngrok 임시 사용 가능)
+| Step | 결과                    | 핵심 역량                                  |
+| ---- | ----------------------- | ------------------------------------------ |
+| 1    | 텔레그램 봇 웹훅 구성   | BotFather 설정, HTTPS Webhook, 메시지 포맷 |
+| 2    | 카카오 스킬 서버 연동   | 시그니처 검증, JSON 변환, 타임아웃 대응    |
+| 3    | 공통 서비스 레이어 설계 | 채널별 포맷터, `rag_service` 재사용        |
+| 4    | 운영/보안 체크          | Rate limit, 금칙어, 로그/비용 모니터링     |
 
-### 1.2 FastAPI 라우트 구현
-- `app/main.py` 혹은 `app/routers/telegram.py`에 다음 로직을 구성
-  - `POST /telegram/webhook`: 텔레그램 업데이트 수신
-  - 메시지 텍스트 추출 후 `RAGService.ask()` 호출
-  - 답변과 출처를 포맷 → `sendMessage` API 호출
-- 템플릿 코드 스니펫
-  - `telegram_client`는 `httpx.AsyncClient`를 래핑해 재사용
+---
 
-```startLine:endLine:app/main.py
-# ... existing code ...
+## 🛠️ 준비물
+
+| 항목     | 상세                                                                                             |
+| -------- | ------------------------------------------------------------------------------------------------ |
+| 텔레그램 | BotFather 계정, 봇 토큰, HTTPS 도메인(ngrok 등)                                                  |
+| 카카오   | 카카오톡 채널, 오픈빌더 프로젝트, 시그니처 비밀키                                                |
+| 환경변수 | `.env`에 `TELEGRAM_BOT_TOKEN`, `TELEGRAM_WEBHOOK_URL`, `KAKAO_CHANNEL_SECRET`, `KAKAO_SKILL_URL` |
+| 네트워크 | 200ms 이상 응답 지연 시 대비(타임아웃, 재시도)                                                   |
+
+---
+
+## 💻 샘플 코드 시작점
+
+```python
+# app/main.py
+from fastapi import FastAPI, Request, HTTPException
+from app.services import rag_service
+from app.clients.telegram import send_message
+from app.clients.kakao import send_skill_response
+from app.security import verify_kakao_signature
+
+app = FastAPI()
+
 @app.post("/telegram/webhook")
 async def telegram_webhook(update: dict):
     message = update.get("message") or {}
     chat_id = message.get("chat", {}).get("id")
     text = message.get("text", "")
-    response = rag_service.ask(text, channel="telegram")
-    payload = {
-        "chat_id": chat_id,
-        "text": format_telegram_response(response),
-        "parse_mode": "Markdown",
-    }
-    await telegram_client.send(payload)
+    response = await rag_service.ask(text, channel="telegram")
+    await send_message(chat_id=chat_id, text=response.render_markdown())
     return {"ok": True}
-# ... existing code ...
+
+
+@app.post("/kakao/router")
+async def kakao_router(request: Request):
+    body = await request.body()
+    signature = request.headers.get("X-Kakao-Signature")
+    if not verify_kakao_signature(body, signature):
+        raise HTTPException(status_code=403, detail="invalid signature")
+    payload = await request.json()
+    question = payload["userRequest"]["utterance"]
+    response = await rag_service.ask(question, channel="kakao")
+    return send_skill_response(response)
 ```
-
-### 1.3 Webhook 등록
-```bash
-curl -X POST https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/setWebhook \
-  -H "Content-Type: application/json" \
-  -d "{\"url\": \"$TELEGRAM_WEBHOOK_URL\"}"
-```
-
-### 1.4 메시지 포맷 가이드
-- 답변 본문 + 출처 목록
-  ```
-  답변 내용
-
-  출처:
-  • 문서명 | p.12 | https://...
-  • 문서명 | 섹션 3 | 내부 링크
-  ```
-- 임계치 미달 시:
-  ```
-  자료에서 근거를 찾지 못했습니다.
-  관련 문서를 업로드해 주시면 더 정확히 답변드릴게요!
-  ```
-
-### 1.5 운영 체크리스트
-- 메시지 길이 4096자 제한 → 긴 답변은 2개 메시지로 분할
-- 봇 다운 대비 `/healthz` 엔드포인트 모니터링
-- 로그에 사용자 ID 저장 시 개인정보 보호 가이드 준수
-- **테스트 시나리오**
-  1. 문서에 있는 질문 → 정상 답변과 출처 확인
-  2. 문서에 없는 질문 → “근거 없음” 안내 메시지 확인
-  3. 금칙어(예: 욕설) → 필터링 후 운영자 연결 안내
-  4. 연속 질문(5회 이상) → Rate-limit 로직 정상 동작 여부 확인
-- **문제 해결**
-  - 응답이 늦다면 `asyncio.create_task`로 LLM 호출 후 typing indicator 전송
-  - Webhook 업데이트 실패는 `ngrok logs` 혹은 텔레그램 `getWebhookInfo`에서 오류 메시지를 확인
 
 ---
 
-## 2. 카카오 i 오픈빌더 연동
+## 🔄 단계별 실습 가이드
 
-### 2.1 사전 준비
-1. 카카오톡 채널 생성 → 오픈빌더 프로젝트 생성
-2. `스킬` > `스킬 서버`에 HTTPS URL 등록
-3. 환경변수 설정
+### 1. 텔레그램 Webhook 연결
+
+1. **BotFather 설정**
+   - `/newbot` → 토큰 발급
+   - `/setprivacy` → “Disable” (모든 메시지 수신)
+2. **Webhook 등록**
+   ```bash
+   curl -X POST https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/setWebhook \
+     -H "Content-Type: application/json" \
+     -d "{\"url\": \"$TELEGRAM_WEBHOOK_URL\"}"
    ```
-   KAKAO_CHANNEL_SECRET=your_secret
-   KAKAO_SKILL_URL=https://your-domain.com/kakao/router
+3. **메시지 처리 규칙**
+   - Markdown 포맷 사용 시 `_` 문자 이스케이프
+   - 4096자 초과 시 메시지 분할 전송
+4. **테스트 체크리스트**
+   - [ ] 문서 기반 질문 3건 (정상/부분/없는 내용)
+   - [ ] 금칙어 필터 → 운영자 안내
+   - [ ] 5회 연속 질문 → Rate-limit 응답
+
+### 2. 카카오 i 오픈빌더 연동
+
+1. **스킬 서버 등록**
+   - 오픈빌더 → 스킬 → 스킬 서버 URL 입력 (`https://.../kakao/router`)
+   - 시그니처 비밀키 복사 → `.env` 저장
+2. **시그니처 검증**
+   ```python
+   import base64, hashlib, hmac
+
+   def verify_kakao_signature(body: bytes, signature: str) -> bool:
+       mac = hmac.new(settings.kakao_secret.encode(), body, hashlib.sha256)
+       digest = base64.b64encode(mac.digest()).decode()
+       return hmac.compare_digest(digest, signature)
    ```
+3. **응답 포맷**
+   ```python
+   def to_skill_response(answer: str, sources: list[dict]) -> dict:
+       source_text = "\n".join(
+           f"- {src['title']} p.{src.get('page','?')}" for src in sources
+       ) or "- 출처 없음"
+       return {
+           "version": "2.0",
+           "template": {
+               "outputs": [
+                   {
+                       "simpleText": {
+                           "text": f"{answer}\n\n출처:\n{source_text}"
+                       }
+                   }
+               ]
+           }
+       }
+   ```
+4. **검수 포인트**
+   - 5초 안에 응답 (LLM 타임아웃 3초 설정)
+   - fallback 블록 구성 (오류 시 안내 문구)
+   - 테스트 채널과 실 서비스 채널 분리 관리
 
-### 2.2 시그니처 검증
-- 카카오 요청 헤더 `X-Kakao-Signature` 검증 필수
-- 예시:
+### 3. 공통 서비스/포맷터 설계
 
-```startLine:endLine:bots/kakao_router.py
-# ... existing code ...
-def verify_signature(body: bytes, signature: str) -> bool:
-    mac = hmac.new(settings.kakao_secret.encode(), body, hashlib.sha256)
-    digest = base64.b64encode(mac.digest()).decode()
-    return hmac.compare_digest(digest, signature)
-# ... existing code ...
+```
+app/
+  services/
+    rag_service.py   # channel별 정책 분기
+  clients/
+    telegram.py      # send_message, typing indicator
+    kakao.py         # send_skill_response
+  formatters/
+    telegram.py      # Markdown escape
+    kakao.py         # simpleText/basicCard 생성
 ```
 
-### 2.3 요청/응답 포맷 변환
-- 카카오 스킬 서버 요청 구조
-  ```json
-  {
-    "userRequest": {
-      "utterance": "문의 내용",
-      "user": {"id": "abc123", "properties": {"plusfriendUserKey": "..."}}
-    },
-    "bot": {...},
-    "action": {...}
-  }
-  ```
-- 응답 예시
-  ```json
-  {
-    "version": "2.0",
-    "template": {
-      "outputs": [
-        {"simpleText": {"text": "답변 내용\n\n출처:\n- ..."}}
-      ]
-    }
-  }
-  ```
-- `bots/kakao_router.py`에서 변환 레이어 작성:
-  - 요청 파싱 → `rag_service.ask(question, channel="kakao")`
-  - 출처를 문자열로 조합하여 `simpleText` 또는 `basicCard` 활용
-
-### 2.4 에러 처리
-- 시그니처 실패: `403 Forbidden`
-- 내부 오류: `500` 반환 + 슬랙/이메일 알림
-- 사용자 입력 미존재: 가이드 메시지 반환
-- **테스트 체크리스트**
-  - 시그니처를 고의로 틀려 POST → 403 응답 확인
-  - JSON 필드 일부 누락 시에도 graceful 한 예외 처리
-  - LLM 타임아웃 발생 시 fallback 메시지 전송 후 로그 기록
-- **운영 팁**
-  - 오픈빌더 “테스트 채널”과 실서비스 채널은 별도로 존재 → 배포 전 테스트 채널에서 모든 시나리오 검증
-  - 카카오 서버는 5초 이상 응답이 지연되면 타임아웃 → LLM 호출은 3초 이내 타임아웃을 설정하고, 지연 시 “처리 중” 메시지를 반환
-
-### 2.5 QA 체크리스트
-- [ ] 테스트 채널에서 5개 질문 성공
-- [ ] 출처 목록 줄바꿈 정상
-- [ ] fallback 블록 설정(비정상 응답 시 안내 메시지)
-- [ ] 주기적 토큰 비용 리포트 공유
+- `rag_service.ask(question, channel)`에서 채널별 포맷 옵션 적용
+- 로깅 시 `channel` 필드 포함 → 비용/사용량 집계
+- Rate-limit → IP or user id 기준 (`30 req/min` 예시)
 
 ---
 
-## 3. 공통 모듈화 전략
-- 프로젝트 구조 예시
-  ```
-  app/
-    services/rag_service.py
-    clients/telegram.py
-    clients/kakao.py
-    formatters/telegram.py
-    formatters/kakao.py
-  ```
-- `services/rag_service.py` 등 공통 서비스 레이어를 만들어 각 채널에서 재사용
-- 채널별 포맷터 분리
-  - 텔레그램: Markdown
-  - 카카오: Plain text + 목록
-- 로깅 시 `channel` 필드로 구분 → 분석/과금에 활용
-- 요청 rate-limit: IP 혹은 user id 기준(예: 30 req/min)
-- **테스트 전략**
-  - 채널별 단위 테스트: 업데이트 JSON fixture → 응답 포맷 검증
-  - 통합 테스트: `TestClient`로 `/telegram/webhook` 호출 후 LLM mock하여 빠른 응답 확인
+## ✅ 체크리스트
 
-## 4. 배포 & 운영 팁
-- HTTPS 인증서는 Let’s Encrypt 자동 갱신 스크립트 구성
-- 장애 대비: `status` 엔드포인트 제공 + 클라우드 모니터링(CloudWatch 등)
-- 주기적 로그 검토로 금칙어 및 민감 발화 탐지
-- 텔레그램은 `getUpdates` 폴링 테스트를 유지하면서, 장애 시 임시로 폴링 모드로 전환할 수 있도록 백업 플랜을 준비하세요.
-- 카카오는 검수 기간(통상 1~3일)을 고려해 일정에 버퍼를 둡니다. 검수 시 요구하는 테스트 계정 정보도 미리 준비합니다.
+- [ ] `.env`에 텔레그램/카카오 환경변수가 설정되어 있다.
+- [ ] `/telegram/webhook`에서 업데이트 로그가 수신된다.
+- [ ] `/kakao/router` 시그니처 검증 실패 시 403을 반환한다.
+- [ ] `rag_service`가 채널별 포맷터와 로깅을 지원한다.
+- [ ] 정상/헛소리/금칙어/오류 시나리오 테스트 결과를 노션에 기록했다.
 
-## 다음 단계
-- 웹 UI 및 관리자 기능은 [`implementation/web-admin.md`](web-admin.md)를 참고하세요.
-- 정확도/가드레일 튜닝은 Week 4 로드맵과 연계하여 진행합니다.
+---
+
+## 🧪 QA & 모니터링
+
+| 항목        | 텔레그램                          | 카카오                                  |
+| ----------- | --------------------------------- | --------------------------------------- |
+| 상태 확인   | `getWebhookInfo`                  | 오픈빌더 로그                           |
+| 재시도 전략 | `sendChatAction`으로 typing 표시  | “처리 중입니다” simpleText 후 후속 응답 |
+| 장애 대응   | 폴링 모드 fallback (`getUpdates`) | 테스트 채널 유지, 재검수 대비           |
+
+- 에러 발생 시 Slack/Email 알림 → [`appendix/troubleshooting.md`](../appendix/troubleshooting.md) 참고
+- 주 1회 토큰 사용량/비용 리포트 공유
+
+---
+
+## 📚 참고 & 다음 학습
+
+- [Telegram Bot API](https://core.telegram.org/bots/api)
+- [카카오 i 오픈빌더 문서](https://i.kakao.com)
+- 배포/로그 모니터링 강화는 [`implementation/web-admin.md`](web-admin.md)로 이동
+- 정확도 개선은 `Week 4` 로드맵과 [`implementation/rag-pipeline.md`](rag-pipeline.md)에서 이어서 진행
+
+채널 운영 중 문제가 발생하면 `appendix/troubleshooting.md`의 “텔레그램 응답 실패”, “카카오 403 에러” 섹션을 먼저 확인하세요.
 

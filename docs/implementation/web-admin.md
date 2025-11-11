@@ -3,6 +3,54 @@
 ## 개요
 이 문서는 **웹 클라이언트 데모**와 **관리자 페이지**(권한·로그·비용 모니터링) 구현 방법을 정리합니다. Week 3~6 로드맵에 해당하며, 고객사 데모 및 운영 신뢰도를 높이는 핵심 요소입니다.
 
+## 샘플 코드 시작점
+```html
+<!-- web/index.html -->
+<form id="ask-form">
+  <label>질문</label>
+  <textarea id="question" required></textarea>
+  <button type="submit">질문하기</button>
+</form>
+<div id="answer"></div>
+<ul id="sources"></ul>
+<div id="toast" class="hidden"></div>
+<script src="assets/app.js"></script>
+```
+
+```javascript
+// web/assets/app.js
+import { renderAnswer, showToast, toggleLoading } from "./ui.js";
+
+document.getElementById("ask-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const question = document.getElementById("question").value.trim();
+  toggleLoading(true);
+  try {
+    const res = await fetch("/ask", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ question }),
+    });
+    if (!res.ok) throw new Error(await res.text());
+    const data = await res.json();
+    renderAnswer(data);
+  } catch (err) {
+    console.error(err);
+    showToast("답변을 생성하지 못했습니다. 잠시 후 다시 시도해 주세요.");
+  } finally {
+    toggleLoading(false);
+  }
+});
+```
+
+## 실습 스텝 요약
+1. `web/` 폴더에 `index.html`, `assets/app.js`, `assets/styles.css`를 생성하고 기본 폼/스타일을 구성합니다.
+2. `/ask` API가 반환하는 JSON 스키마(`answer`, `sources`, `token_usage`, `cost`)에 맞춰 렌더링 함수를 작성합니다.
+3. 에러 상황(400/401/500, 네트워크 실패)을 강제로 발생시켜 토스트 메시지가 제대로 노출되는지 확인합니다.
+4. Week 6 작업 시 `/admin` 라우트를 추가하고, 일별 통계 API(`admin/stats/daily`)를 작성해 차트 라이브러리에 연결합니다.
+5. JWT 기반 권한 필터링을 적용해 사용자의 팀/직급에 따라 `retriever`의 `where` 조건이 달라지는지 검증합니다.
+6. `LOG_FILE`, DB 로그 테이블 등을 확인하며 비용 계산(`token_in/out`)과 응답 지연(`latency_ms`)이 정상적으로 누적되는지 체크합니다.
+
 ---
 
 ## 1. 웹 데모 (Week 3)
@@ -148,18 +196,18 @@
 
 ### 2.4 로깅 스키마
 - `requests` 테이블
-  | 필드 | 설명 |
-  | --- | --- |
-  | `id` | PK |
-  | `user_id` | 사용자 FK (익명일 경우 null) |
-  | `channel` | `web/telegram/kakao` |
-  | `question` | 원문 |
-  | `answer` | 요약본 또는 전문 |
-  | `sources` | JSON 배열 |
-  | `token_in` / `token_out` | LLM 토큰 수 |
-  | `cost` | USD 또는 KRW |
-  | `latency_ms` | 응답 시간 |
-  | `created_at` | 타임스탬프 |
+  | 필드                     | 설명                         |
+  | ------------------------ | ---------------------------- |
+  | `id`                     | PK                           |
+  | `user_id`                | 사용자 FK (익명일 경우 null) |
+  | `channel`                | `web/telegram/kakao`         |
+  | `question`               | 원문                         |
+  | `answer`                 | 요약본 또는 전문             |
+  | `sources`                | JSON 배열                    |
+  | `token_in` / `token_out` | LLM 토큰 수                  |
+  | `cost`                   | USD 또는 KRW                 |
+  | `latency_ms`             | 응답 시간                    |
+  | `created_at`             | 타임스탬프                   |
 
 - 비용 계산 예시
   ```python

@@ -1,74 +1,128 @@
 # RAG 포트폴리오 마스터 가이드
 
-## 개요
-이 문서 세트는 8주 안에 수익화 가능한 **RAG 기반 챗봇 포트폴리오 2종**(텔레그램/웹, 카카오/관리자)을 완성하기 위한 실전 가이드입니다. 기술 구현뿐 아니라 데모 제작, 영업 자료, 수주 전략까지 모두 포함합니다.
-
-## 시작 전 준비물
-- Python 3.10 이상, Git, Docker(Week 7용) 설치
-- OpenAI API 키, 텔레그램 BotFather 계정, 카카오 i 오픈빌더 계정 준비
-- VS Code 또는 PyCharm 등 IDE, ngrok/Cloudflare Tunnel(임시 HTTPS) 설치
-- Windows 사용자는 `PowerShell` 대신 `cmd.exe` 또는 WSL 둘 중 하나를 기준으로 진행
-
-## 문서 활용법
-1. `roadmap/week01-08.md`에서 전체 일정을 훑어보고, 주차별 목표를 노션/캘린더에 옮겨 적습니다.
-2. 각 주차에 해당하는 구현 문서를 차례대로 학습하며 실제 코드를 작성합니다.
-3. 진행 중 막히는 부분은 `appendix/troubleshooting.md`에서 해결책을 찾고, 해결 후에는 노션 작업일지에 기록합니다.
-4. Week 7 이후에는 `business/package.md`를 따라 영업 자료와 템플릿을 정리합니다.
-
-## 문서 네비게이션
-- [주차별 로드맵](roadmap/week01-08.md)
-- 구현 가이드
-  - [RAG 파이프라인](implementation/rag-pipeline.md)
-  - [챗봇 연결(텔레그램·카카오)](implementation/bots.md)
-  - [웹 UI·관리자/로그 기능](implementation/web-admin.md)
-- 비즈니스 자산
-  - [상품 패키지·영업 템플릿](business/package.md)
-- 부록
-  - [requirements.txt 작성 및 사용 가이드](appendix/setup-requirements.md)
-  - [트러블슈팅·FAQ](appendix/troubleshooting.md)
-
-## 바로 시작하기 체크리스트
-1. [`appendix/setup-requirements.md`](appendix/setup-requirements.md)를 참고해 `requirements.txt` 기반 가상환경 생성 및 패키지 설치
-2. [`implementation/rag-pipeline.md`](implementation/rag-pipeline.md)의 업로드→임베딩→검색→응답 플로우 구축
-3. [`implementation/bots.md`](implementation/bots.md) 절차대로 텔레그램 챗봇 웹훅 연동
-4. [`implementation/web-admin.md`](implementation/web-admin.md) 를 참고해 웹 데모 및 로그 스키마 추가
-5. 완료 후 [`business/package.md`](business/package.md) 템플릿으로 제안서/가격표 준비
-
-> **Tip**: 각 단계를 완료할 때마다 `docs/roadmap/week01-08.md` 의 완료 기준을 체크하고, 실제 산출물(코드/영상/스크린샷)을 노션 페이지에 링크로 정리해 둡니다.
-
-## 주차별 목표 스냅샷
-- **Week 1**: FastAPI + Chroma 기반 RAG 골격, 출처 포함 응답
-- **Week 2**: 텔레그램 봇 연동 및 데모 영상
-- **Week 3**: 웹 UI 완성, 스크린샷 확보
-- **Week 4**: 정확도 평가/가드레일, 보고서 작성
-- **Week 5-6**: 카카오 챗봇, 권한/로그/비용 모니터링
-- **Week 7**: Docker·배포·운영 문서
-- **Week 8**: 노션 소개 페이지, 가격·계약 패키지
-
-## 산출물 체크
-| 구분 | 필수 산출물                             | 비고                             |
-| ---- | --------------------------------------- | -------------------------------- |
-| 데모 | 텔레그램 영상, 웹 스크린샷, 카카오 영상 | 유튜브 비공개 링크/이미지        |
-| 코드 | `rag-bot` GitHub 리포지토리             | README + `.env.example` + Docker |
-| 분석 | 정확도 평가 리포트, 로그/비용 요약      | Week 4, Week 6 산출물 + 그래프   |
-| 영업 | 노션 소개, 가격표, 제안/계약 템플릿     | Week 8에서 완성, PDF 백업 포함   |
-
-## 다음 단계
-- 처음이라면 [주차별 로드맵](roadmap/week01-08.md)을 따라가며 전체 흐름을 파악하세요.
-- 구현 중 막히면 [트러블슈팅](appendix/troubleshooting.md)을 우선 확인하고, 필요 시 TODO를 갱신하며 진행합니다.
+> **목표**: 8주 안에 텔레그램/웹/카카오 기반 RAG 챗봇 두 종류를 완성하고, 외주 수주에 필요한 산출물까지 준비한다.
 
 ---
 
-## 추천 작업 루틴
-- **월/수/금 저녁 (1.5h)**: 구현 문서 학습 + 코드 작성
-- **화/목 (1h)**: 테스트 및 데모 영상/스크린샷 정리
-- **주말(4h)**: 정확도 튜닝, 관리자/배포 작업, 노션 문서 업데이트
+## 📦 무엇을 배우나요?
 
-## 진행 현황 기록 예시
-| 날짜  | 한 일                             | 산출물 링크            | 다음 할 일         |
-| ----- | --------------------------------- | ---------------------- | ------------------ |
-| 11/10 | FastAPI 기본 엔드포인트 구현      | GitHub commit `abc123` | Chroma 색인 테스트 |
-| 11/12 | 텔레그램 Webhook 연동, 테스트 5건 | Demo 영상(비공개)      | 웹 UI 초안 작성    |
+| 구분          | 결과물                                            | 핵심 역량                          |
+| ------------- | ------------------------------------------------- | ---------------------------------- |
+| **기술**      | 문서 업로드 → 임베딩 → 검색 → GPT 응답 파이프라인 | FastAPI, LangChain, Chroma, OpenAI |
+| **운영**      | 권한/로그/비용 모니터링, 관리자 대시보드          | JWT, SQLAlchemy, 차트/리포트       |
+| **채널 연동** | 텔레그램 & 카카오 챗봇                            | Webhook, 시그니처 검증, 응답 포맷  |
+| **비즈니스**  | 노션 소개, 가격표, 제안서·계약서                  | 영업 스크립트, 견적 프로세스       |
 
-> 위 표처럼 노션 혹은 스프레드시트에 매일 기록하면 8주 완료 시 포트폴리오 설명 자료로 바로 활용 가능합니다.
+---
+
+## 🧭 학습 지도
+
+| 문서                                                               | 샘플 코드                | 실습 스텝                                        |
+| ------------------------------------------------------------------ | ------------------------ | ------------------------------------------------ |
+| [`roadmap/week01-08.md`](roadmap/week01-08.md)                     | 주차별 체크리스트        | 주차별 목표 설정 → 산출물 업로드 → 리뷰          |
+| [`implementation/rag-pipeline.md`](implementation/rag-pipeline.md) | 업로드→임베딩 파이프라인 | 문서 파싱 → 청크 분할 → 벡터 색인 → 응답 생성    |
+| [`implementation/bots.md`](implementation/bots.md)                 | 텔레그램/카카오 웹훅     | BotFather/오픈빌더 설정 → Webhook 구현 → QA      |
+| [`implementation/web-admin.md`](implementation/web-admin.md)       | 웹 데모 & 관리자 페이지  | index.html 작성 → Fetch API 연동 → 통계 API 구현 |
+| [`business/package.md`](business/package.md)                       | 제안서/영업 템플릿       | 패키지 선택 → 온보딩 체크리스트 → 제안/계약 작성 |
+| [`appendix/setup-requirements.md`](appendix/setup-requirements.md) | `requirements.txt`       | 가상환경 구성 → 패키지 설치 → `.env` 설정        |
+| [`appendix/troubleshooting.md`](appendix/troubleshooting.md)       | -                        | 장애 대응 → FAQ → SLA 운영                       |
+
+> 모든 문서는 **샘플 코드**와 **실습 스텝** 섹션을 포함합니다. 우선 코드를 돌려보고, 그다음 원리를 이해하는 방식으로 진행하세요.
+
+---
+
+## 🛠️ 시작 전 체크리스트
+
+- [ ] Python 3.10+, Git, Docker 설치 (Windows는 `cmd.exe` 또는 WSL 사용 권장)
+- [ ] OpenAI API 키, 텔레그램 BotFather 토큰, 카카오 i 오픈빌더 계정 준비
+- [ ] VS Code / PyCharm + Thunder Client 또는 Insomnia 설치
+- [ ] ngrok / Cloudflare Tunnel 등 HTTPS 터널 도구 설치
+- [ ] 노션 또는 스프레드시트에 작업 일지 템플릿 생성
+
+참고 문서: [`appendix/setup-requirements.md`](appendix/setup-requirements.md)
+
+---
+
+## 🚀 바로 실행하기 (Day 1)
+
+1. `git clone` 후 가상환경 생성 → `pip install -r requirements.txt`
+2. `.env.example`을 복사해 `.env` 작성 (`OPENAI_API_KEY` 포함)
+3. `uvicorn app.main:app --reload` 로 기본 서버 실행
+4. `roadmap/week01-08.md` Week 1 체크리스트를 노션에 복사
+5. 샘플 문서 1개로 `/upload` → `/ask`까지 스모크 테스트
+
+---
+
+## 📅 8주 스냅샷
+
+| 주차   | 주요 목표           | 산출물                          |
+| ------ | ------------------- | ------------------------------- |
+| Week 1 | RAG 파이프라인 골격 | FastAPI 엔드포인트, Chroma 색인 |
+| Week 2 | 텔레그램 챗봇       | Webhook 구현, 데모 영상         |
+| Week 3 | 웹 데모 UI          | 스크린샷, 로딩/에러 처리        |
+| Week 4 | 정확도 & 가드레일   | 평가 리포트, 가드레일 정책      |
+| Week 5 | 카카오 챗봇         | 오픈빌더 연동, 시그니처 검증    |
+| Week 6 | 권한·로그·비용      | 관리자 캡처, 로그 스키마        |
+| Week 7 | 배포 & 운영         | Dockerfile, 배포 URL            |
+| Week 8 | 영업 자산           | 노션 소개, 가격/계약 템플릿     |
+
+상세 실습은 [`roadmap/week01-08.md`](roadmap/week01-08.md)를 참고하세요.
+
+---
+
+## 📋 산출물 점검표
+
+| 카테고리 | 필수 산출물                             | 제출 방식                        |
+| -------- | --------------------------------------- | -------------------------------- |
+| 데모     | 텔레그램 영상, 웹 스크린샷, 카카오 영상 | 유튜브 비공개 링크 & 이미지      |
+| 코드     | `rag-bot` GitHub 리포지토리             | README + `.env.example` + Docker |
+| 품질     | 정확도 리포트, 로그/비용 요약           | Week 4 & 6 리포트, 그래프 포함   |
+| 영업     | 노션 소개, 가격표, 제안/계약 템플릿     | 노션 공유 링크 + PDF 백업        |
+
+> 각 산출물은 노션 작업일지와 GitHub Releases에 함께 기록해 두면 실제 외주 제안 시 증빙 자료로 활용하기 좋습니다.
+
+---
+
+## 🧪 셀프 체크 & 루틴
+
+- **Daily**: 작업 후 `git status` + 노션 작업일지 업데이트
+- **Weekly**: 산출물 캡처/영상 정리, 정확도·비용 지표 리뷰
+- **Milestone 리뷰**: Week 4, Week 6, Week 8 완료 시 회고 → README에 변경사항 반영
+
+작업 기록 예시:
+
+| 날짜  | 작업 내용                      | 산출물              | 다음 액션          |
+| ----- | ------------------------------ | ------------------- | ------------------ |
+| 11/10 | FastAPI `/upload`, `/ask` 초안 | commit `abc123`     | Chroma 색인 테스트 |
+| 11/12 | 텔레그램 Webhook + 영상 촬영   | YouTube 비공개 링크 | 웹 UI 초안         |
+
+---
+
+## 🔗 확장 학습 (Spring Boot)
+
+RAG 챗봇과 별도로 백엔드 역량을 확장하고 싶다면 아래 문서를 참고하세요.
+
+| 문서                                                                                    | 내용                                 |
+| --------------------------------------------------------------------------------------- | ------------------------------------ |
+| [`Step_01_스프링부트_기초.md`](../docs2/Step_01_스프링부트_기초.md)                     | 스프링부트 기본 개념 및 첫 API       |
+| [`Step_02_기본_게시판_API.md`](../docs2/Step_02_기본_게시판_API.md)                     | 게시판 CRUD, Service/Repository 구조 |
+| [`README_마이크로서비스_학습_로드맵.md`](../docs2/README_마이크로서비스_학습_로드맵.md) | 마이크로서비스 전환 로드맵           |
+
+---
+
+## 🆘 막히면 이렇게
+
+1. [`appendix/troubleshooting.md`](appendix/troubleshooting.md)에서 오류 유형을 찾는다.
+2. 해결이 안 되면 로그/스크린샷을 노션에 기록하고 다음 날 30분 “버그 처리 시간”을 확보한다.
+3. 반복적으로 발생하는 이슈는 README FAQ 섹션에 추가한다.
+
+---
+
+## ✅ 다음 단계
+
+1. `roadmap/week01-08.md` Week 1 항목을 시작한다.
+2. 첫 산출물(코드/영상)을 노션과 GitHub에 기록한다.
+3. 스프린트 종료 시 README에 “진행 상황 요약”을 추가해 두자.
+
+성공적인 포트폴리오 완성을 응원합니다! 🚀
 
