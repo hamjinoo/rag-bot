@@ -1,41 +1,11 @@
-# 웹 프레임워크
 fastapi==0.104.1
 uvicorn[standard]==0.24.0
-python-multipart==0.0.6
-
-# 환경변수 관리
-python-dotenv==1.0.0
-
-# RAG 파이프라인
 langchain==0.1.0
 langchain-openai==0.0.2
-langchain-community==0.0.10
 chromadb==0.4.18
-
-# 문서 파싱
 pypdf==3.17.1
 python-docx==1.1.0
 pandas==2.1.3
-
-# HTTP 클라이언트
-httpx==0.25.1
-requests==2.31.0
-
-# 유틸리티
-pydantic==2.5.0
-pydantic-settings==2.1.0
-tiktoken==0.5.1
-
-# 데이터베이스 (Week 6)
-sqlalchemy==2.0.23
-alembic==1.12.1
-
-# 인증 (Week 6)
-python-jose[cryptography]==3.3.0
-passlib[bcrypt]==1.7.4
-
-# 테스트
-pytest==7.4.3
-pytest-asyncio==0.21.1
-pytest-cov==4.1.0
-
+python-multipart==0.0.6
+python-dotenv==1.0.0
+tiktoken==0.5.2
