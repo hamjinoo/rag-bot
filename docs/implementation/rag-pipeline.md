@@ -165,6 +165,8 @@ uvicorn app.main:app --reload
 
 ## 💻 샘플 코드 시작점
 
+> **💡 이 코드를 보기 전에**: 아래 코드는 "빠르게 시작하기"용 스켈레톤입니다. 각 줄의 원리는 Step 5에서 자세히 설명합니다. **원리를 모르고 따라해도 작동은 하지만, 문제가 생겼을 때 해결하려면 원리를 알아야 합니다.**
+
 ```python
 # app/pipelines.py
 from langchain.text_splitter import RecursiveCharacterTextSplitter
@@ -173,15 +175,77 @@ from app.parsers import parse_document
 
 
 async def process_upload(file) -> str:
+    # 1. 파일 파싱: PDF/Docx → 텍스트 추출
     text, metadata = parse_document(file)
+    
+    # 2. 청크 분할: 긴 텍스트를 600자씩 나누기
+    #    - chunk_size=600: 최대 600자 (GPT 토큰 제한 고려)
+    #    - chunk_overlap=120: 청크 간 120자 겹침 (문맥 보존)
     splitter = RecursiveCharacterTextSplitter(
         chunk_size=600,
         chunk_overlap=120,
     )
+    
+    # 3. Document 객체 생성: 각 청크에 metadata 붙이기
+    #    - 결과: [Document(page_content="청크1", metadata={...}), ...]
     chunks = splitter.create_documents([text], metadatas=[metadata])
+    
+    # 4. 벡터 DB에 저장: 임베딩 생성 후 Chroma에 저장
+    #    - 내부적으로 OpenAI API 호출 (비용 발생)
     vector_client.add_documents(chunks)
+    
+    # 5. 문서 ID 반환: 나중에 재색인/삭제 시 사용
     return metadata["doc_id"]
 ```
+
+**🔍 각 줄의 원리 (간단 요약)**
+
+| 코드                                             | 원리                          | 왜 이렇게?                |
+| ------------------------------------------------ | ----------------------------- | ------------------------- |
+| `parse_document(file)`                           | PDF/Docx → 텍스트 추출        | 벡터 검색은 텍스트만 가능 |
+| `chunk_size=600`                                 | 최대 600자로 분할             | GPT 입력 제한 + 비용 절감 |
+| `chunk_overlap=120`                              | 청크 간 120자 겹침            | 문맥 손실 방지            |
+| `create_documents([text], metadatas=[metadata])` | 텍스트 → Document 객체 리스트 | LangChain 표준 포맷       |
+| `vector_client.add_documents(chunks)`            | 임베딩 생성 + 벡터 DB 저장    | 유사도 검색 가능하게      |
+
+**❓ 원리를 모르고 따라해도 되나요?**
+
+**A: 초기에는 괜찮지만, 문제 해결을 위해 원리를 알아야 합니다.**
+
+**예시 시나리오:**
+
+**시나리오 1: 검색 결과가 부정확함**
+```
+원리 모름: "어떻게 고치지?" 💥
+원리 앎: "chunk_size를 800으로 늘려보자" (더 긴 문맥 보존)
+         또는 "overlap을 150으로 늘려보자" (문맥 겹침 증가)
+```
+
+**시나리오 2: 비용이 너무 많이 듦**
+```
+원리 모름: "왜 이렇게 비싸지?" 💥
+원리 앎: "chunk_size를 400으로 줄이자" (청크 개수 증가 → 임베딩 비용 증가)
+         또는 "로컬 임베딩 모델로 교체하자" (OpenAI 비용 절감)
+```
+
+**시나리오 3: 한글 문서가 깨짐**
+```
+원리 모름: "왜 한글이 깨지지?" 💥
+원리 앎: "separators에 '' 추가하자" (한글은 공백 없이도 분할 가능)
+         또는 "pdfplumber로 교체하자" (한글 인코딩 문제 해결)
+```
+
+**📚 원리 학습 순서 (추천)**
+
+1. **1차 목표: 작동하게 만들기** (원리 모르고 따라하기 OK)
+2. **2차 목표: 문제 해결하기** (원리 학습 필수)
+   - Step 5의 "코드 원리 이해하기" 섹션 읽기
+   - 각 파라미터를 바꿔보며 테스트
+3. **3차 목표: 최적화하기** (고급)
+   - 문서 종류별 최적 파라미터 찾기
+   - 비용 vs 정확도 트레이드오프 이해
+
+> **💡 팁**: 처음엔 그냥 따라하기만 해도 됩니다. 문제가 생겼을 때 "코드 원리 이해하기" 섹션을 다시 읽어보세요!
 
 ```python
 # app/retriever.py
@@ -426,20 +490,62 @@ def split_text(text: str, metadata: dict) -> List[Document]:
     Returns:
         Document 객체 리스트 (각 청크)
     """
+    # RecursiveCharacterTextSplitter란?
+    # - 텍스트를 "재귀적으로" 분할하는 도구
+    # - 먼저 문단(\n\n)으로 나누고, 안 되면 줄(\n)로, 그래도 안 되면 단어( )로, 마지막엔 문자 단위로
+    # - 왜 재귀적? → 문단 경계를 최대한 보존하면서도 정확히 600자로 맞추기 위해
+    
     splitter = RecursiveCharacterTextSplitter(
-        chunk_size=CHUNK_SIZE,
-        chunk_overlap=CHUNK_OVERLAP,
-        separators=["\n\n", "\n", " ", ""],  # 문단 → 줄 → 단어 → 문자 순
+        chunk_size=CHUNK_SIZE,      # 600자 = GPT 입력 토큰 제한 고려 (한글 1자 ≈ 1토큰)
+        chunk_overlap=CHUNK_OVERLAP, # 120자 = 청크1 끝과 청크2 시작이 겹침 (문맥 보존)
+        separators=["\n\n", "\n", " ", ""],  # 우선순위: 문단 → 줄 → 단어 → 문자
     )
     
+    # create_documents는 뭘 하나요?
+    # - 텍스트를 청크로 나누고, 각 청크에 metadata를 붙여서 Document 객체 생성
+    # - Document = {page_content: "청크 텍스트", metadata: {"title": "...", "page": 3}}
     chunks = splitter.create_documents(
-        texts=[text],
-        metadatas=[metadata]
+        texts=[text],           # 리스트로 전달 (여러 문서 동시 처리 가능)
+        metadatas=[metadata]    # 각 청크에 동일한 metadata 복사
     )
     
     print(f"✅ 청크 분할 완료: {len(chunks)}개")
     return chunks
 ```
+
+**🔍 코드 원리 이해하기**
+
+**Q: `chunk_size=600`은 정확히 600자로 나누나요?**
+- A: 아니요. **최대 600자**입니다. 문단 경계를 보존하려고 580자에서 멈출 수도 있습니다.
+- 예시:
+  ```
+  청크1: "제1장 총칙\n\n제1조 (목적) 이 규정은..." (598자, \n\n에서 멈춤)
+  청크2: "제2조 (적용 범위) 본 규정은..." (602자, 하지만 문단 경계 보존)
+  ```
+
+**Q: `chunk_overlap=120`은 왜 필요한가요?**
+- A: 문맥 손실 방지입니다.
+- 예시:
+  ```
+  청크1 끝: "...연차 휴가는 입사 1년 후부터 15일이 부여되며"
+  청크2 시작: "부여되며, 사용은 근태 관리 시스템에서 신청합니다"
+           ↑ 120자 겹침 (문맥 보존)
+  ```
+- 만약 overlap이 0이면? → "부여되며"가 청크2에만 있어서 검색 시 문맥이 끊김
+
+**Q: `separators=["\n\n", "\n", " ", ""]` 순서는 왜 이렇게?**
+- A: 우선순위 때문입니다.
+  1. `\n\n` (문단) → 가장 자연스러운 경계
+  2. `\n` (줄) → 문단이 없으면 줄 단위
+  3. ` ` (공백) → 줄도 없으면 단어 단위
+  4. `""` (빈 문자열) → 마지막 수단 (문자 단위, 한글/중국어 처리용)
+
+**Q: 원리를 모르고 따라해도 되나요?**
+- A: **초기에는 괜찮습니다!** 하지만 문제가 생겼을 때 해결하려면 원리를 알아야 합니다.
+- 예시:
+  - 문제: "검색 결과가 부정확해요"
+  - 원리 모름: "어떻게 고치지?" 💥
+  - 원리 앎: "`chunk_size`를 800으로 늘려보자" 또는 "`overlap`을 150으로 늘려보자" ✨
 
 **테스트:**
 
@@ -1140,6 +1246,10 @@ AI 챗봇으로 해결하는 솔루션을 제안드립니다.
 
 5. ❌ **혼자 끙끙 앓음**
    - ✅ GitHub Discussions나 카카오톡 오픈채팅으로 질문
+
+6. ❌ **원리를 모르고 그냥 따라하기만 함**
+   - ✅ 처음엔 OK, 하지만 문제 생기면 "코드 원리 이해하기" 섹션 다시 읽기
+   - ✅ 각 파라미터(`chunk_size`, `overlap` 등)를 바꿔보며 테스트
 
 ---
 
