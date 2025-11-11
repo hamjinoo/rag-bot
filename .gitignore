@@ -1,0 +1,153 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+pip-wheel-metadata/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# 가상환경
+.venv/
+venv/
+ENV/
+env/
+.conda/
+
+# 환경변수 (중요: API 키 보호)
+.env
+.env.local
+.env.*.local
+
+# 벡터 데이터베이스
+chroma/
+vector_store/
+*.chroma
+
+# 데이터베이스
+*.db
+*.sqlite
+*.sqlite3
+*.db-journal
+
+# 로그 파일
+logs/
+*.log
+*.log.*
+log/
+
+# 업로드된 문서 (사용자 데이터)
+data/uploads/
+data/temp/
+*.pdf
+*.docx
+*.doc
+*.xlsx
+*.xls
+*.csv
+!data/.gitkeep
+!data/eval.csv  # 평가 데이터셋은 포함 가능
+
+# Jupyter Notebook
+.ipynb_checkpoints
+*.ipynb_checkpoints/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.project
+.pydevproject
+.settings/
+*.sublime-project
+*.sublime-workspace
+
+# OS
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+Desktop.ini
+
+# 테스트
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.hypothesis/
+*.cover
+*.py,cover
+
+# 마이그레이션 (선택적: 필요시 커밋)
+# alembic/versions/*.py
+# !alembic/versions/__init__.py
+
+# 임시 파일
+*.tmp
+*.bak
+*.swp
+*.swo
+*~
+.cache/
+
+# Docker
+.dockerignore
+docker-compose.override.yml
+
+# 배포 관련
+.vercel
+.netlify
+*.pem
+*.key
+*.crt
+
+# 백업 파일
+*.backup
+*.old
+backup/
+
+# 메모리 덤프
+*.dmp
+*.core
+
+# 패키지 관리
+poetry.lock
+Pipfile.lock
+pip-log.txt
+pip-delete-this-directory.txt
+
+# 노션/문서 백업 (선택적)
+*.pdf.backup
+docs/backup/
+
+# 모니터링/분석
+.sentry/
+sentry-debug.log
+
+# 기타
+*.orig
+*.rej
+*.pot
+*.mo
+
