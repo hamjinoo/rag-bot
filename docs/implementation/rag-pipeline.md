@@ -250,16 +250,28 @@ async def process_upload(file) -> str:
 ```python
 # app/retriever.py
 from app.vector_store import vector_client
-from app.llm import build_prompt_and_ask
+from app.llm import generate_answer
 
 async def retrieve_answer(question: str) -> dict:
-    docs = vector_client.similarity_search(question, k=5, score_threshold=0.75)
-    if not docs:
+    # score_threshold 없이 검색 후 필터링
+    docs_with_scores = vector_client.similarity_search_with_score(
+        question,
+        k=5,
+    )
+    
+    # 거리 점수를 유사도로 변환하고 최소 유사도 0.3 이상만 선택
+    filtered_docs = []
+    for doc, distance in docs_with_scores:
+        similarity = max(0.0, 1.0 - (distance / 2.0))
+        if similarity >= 0.3:  # 유사도 30% 이상
+            filtered_docs.append(doc)
+    
+    if not filtered_docs:
         return {
             "answer": "자료에서 근거를 찾지 못했습니다. 관련 문서를 업로드해 주세요.",
             "sources": [],
         }
-    return await build_prompt_and_ask(question, docs)
+    return await generate_answer(question, filtered_docs)
 ```
 
 ---
@@ -326,6 +338,7 @@ fastapi==0.104.1
 uvicorn[standard]==0.24.0
 langchain==0.1.0
 langchain-openai==0.0.2
+langchain-community==0.0.10
 chromadb==0.4.18
 pypdf==3.17.1
 python-docx==1.1.0
@@ -610,9 +623,9 @@ python tests/test_chunking.py
 
 ```python
 from langchain_openai import OpenAIEmbeddings
-from langchain.vectorstores import Chroma
+from langchain_community.vectorstores import Chroma
 from langchain.schema import Document
-from typing import List
+from typing import List, Tuple
 import os
 from dotenv import load_dotenv
 
@@ -639,16 +652,60 @@ def add_documents(chunks: List[Document]):
     vector_client.persist()  # 디스크에 저장
     print(f"✅ {len(chunks)}개 청크를 벡터 DB에 저장했습니다.")
 
-def search_documents(query: str, k: int = 5):
+def search_documents(query: str, k: int = 5, score_threshold: float = None):
     """
     질문과 유사한 문서 검색
+    
+    Args:
+        query: 검색 질문
+        k: 반환할 문서 개수
+        score_threshold: 최소 유사도 점수 (None이면 필터링 안 함, 0.0~1.0 범위)
+                        기본값은 None (모든 결과 반환)
+    
+    Returns:
+        List[Tuple[Document, float]]: (문서, 유사도 점수) 리스트
     """
-    results = vector_client.similarity_search_with_relevance_scores(
+    # ChromaDB의 similarity_search_with_score는 거리(distance)를 반환
+    # 코사인 거리: 0 (완전히 동일) ~ 2 (완전히 반대)
+    # L2 거리: 0 이상의 값 (작을수록 유사)
+    results = vector_client.similarity_search_with_score(
         query=query,
         k=k,
-        score_threshold=0.75  # 유사도 75% 이상만
     )
-    return results
+    
+    # 거리 점수를 유사도 점수로 변환
+    # ChromaDB는 기본적으로 L2 거리를 사용하지만, 
+    # OpenAI 임베딩과 함께 사용할 때는 코사인 거리를 사용할 수 있음
+    normalized_results = []
+    for doc, distance in results:
+        # 거리를 유사도로 변환
+        # 작은 거리 = 높은 유사도
+        # 거리 0 → 유사도 1.0
+        # 거리 1 → 유사도 0.5 (임의의 기준점)
+        # 거리 2 이상 → 유사도 0.0에 가까움
+        
+        # 코사인 거리 변환 (0-2 범위를 0-1 유사도로)
+        if distance < 0:
+            # 음수는 예외 케이스 (절대값 사용)
+            similarity = max(0.0, min(1.0, 1.0 - abs(distance) / 2.0))
+        elif distance <= 2.0:
+            # 코사인 거리: 0-2 범위
+            similarity = max(0.0, 1.0 - (distance / 2.0))
+        else:
+            # L2 거리 또는 큰 거리 값: 지수 감쇠 적용
+            similarity = max(0.0, 1.0 / (1.0 + distance))
+        
+        normalized_results.append((doc, similarity))
+    
+    # threshold 필터링 (지정된 경우)
+    if score_threshold is not None and score_threshold > 0:
+        filtered_results = [
+            (doc, sim) for doc, sim in normalized_results 
+            if sim >= score_threshold
+        ]
+        return filtered_results
+    
+    return normalized_results
 ```
 
 **전체 파이프라인 테스트:**
@@ -674,15 +731,23 @@ def test_full_pipeline():
     print(f"   ✅ 색인 완료\n")
     
     print("🔍 Step 4: 검색 테스트")
-    query = "연차 휴가는 몇 일인가요?"
-    results = search_documents(query, k=3)
+    # 문서 내용과 관련된 질문들로 테스트
+    test_queries = [
+        "해싱이 무엇인가요?",
+        "자료구조의 종류는?",
+        "부동소수점수는 어떻게 구성되나요?",
+    ]
     
-    if results:
-        print(f"   ✅ {len(results)}개 문서 발견:")
-        for doc, score in results:
-            print(f"      📄 유사도 {score:.2f}: {doc.page_content[:100]}...")
-    else:
-        print("   ❌ 관련 문서를 찾지 못했습니다.")
+    for query in test_queries:
+        print(f"\n   질문: {query}")
+        results = search_documents(query, k=3, score_threshold=None)
+        if results:
+            print(f"   ✅ {len(results)}개 문서 발견:")
+            for i, (doc, score) in enumerate(results[:3], 1):
+                preview = doc.page_content[:80].replace("\n", " ")
+                print(f"      {i}. 유사도 {score:.3f}: {preview}...")
+        else:
+            print("   ❌ 관련 문서를 찾지 못했습니다.")
 
 if __name__ == "__main__":
     test_full_pipeline()
@@ -696,20 +761,35 @@ python tests/test_full_pipeline.py
 **결과 예시:**
 ```
 📂 Step 1: PDF 파싱
-   ✅ 15243자 추출
+   ✅ 4612자 추출
 
 🔪 Step 2: 청크 분할
-   ✅ 28개 청크 생성
+✅ 청크 분할 완료: 13개
+   ✅ 13개 청크 생성
 
 🗄️ Step 3: 벡터 DB 색인 (임베딩 생성 중... 30초 소요)
-✅ 28개 청크를 벡터 DB에 저장했습니다.
+✅ 13개 청크를 벡터 DB에 저장했습니다.
    ✅ 색인 완료
 
 🔍 Step 4: 검색 테스트
+
+   질문: 해싱이 무엇인가요?
    ✅ 3개 문서 발견:
-      📄 유사도 0.89: 제3조 (연차 휴가) 입사 1년 후부터 15일의 연차가 부여되며...
-      📄 유사도 0.82: 휴가 사용은 근태 관리 시스템에서 최소 3일 전 신청...
-      📄 유사도 0.76: 미사용 연차는 익년 상반기까지 이월 가능...
+      1. 유사도 0.963: [ 해싱 ] -킷값으로부터 레코드가 저장되어 있는 주소를 직접 계산하여...
+      2. 유사도 0.962: [ 해싱 ] -킷값으로부터 레코드가 저장되어 있는  주소를 직접 계산하여...
+      3. 유사도 0.951: 3. 자료 구조 – 독학사 2단계정리 [ 자료 ] -단순한 수집된 사실이나 값으로...
+
+   질문: 자료구조의 종류는?
+   ✅ 3개 문서 발견:
+      1. 유사도 0.934: 3. 자료 구조 – 독학사 2단계정리 [ 자료 ] -단순한 수집된 사실이나 값으로...
+      2. 유사도 0.892: [ 자료구조 ] -선형자료구조 : stack, depue, list -비선형자료구조 : tree, graph...
+      3. 유사도 0.876: [ 자료선택 시  고려사항 ] -자료의 양 -자료를 접근하여 사용하는 빈도...
+
+   질문: 부동소수점수는 어떻게 구성되나요?
+   ✅ 3개 문서 발견:
+      1. 유사도 0.945: [ 부동소수점수 ] -구성은 부호부 , 지수보 , 가수부 -소수점 자리는 지수부...
+      2. 유사도 0.923: 3. 자료 구조 – 독학사 2단계정리 [ 자료 ] -단순한 수집된 사실이나 값으로...
+      3. 유사도 0.891: [ 프로시저간의 자료전달 방법 ] -call by value : 매개변수 값을 전달방식...
 ```
 
 **🎉 여기까지 성공했다면:**
@@ -964,12 +1044,18 @@ pip install langchain==0.1.0 langchain-openai==0.0.2
 
 **해결:**
 ```python
-# app/vector_store.py에서 임계치 낮추기
-results = vector_client.similarity_search_with_relevance_scores(
-    query=query,
-    k=k,
-    score_threshold=0.5  # 0.75 → 0.5로 낮춤
-)
+# app/vector_store.py에서 임계치 낮추거나 제거
+# 방법 1: threshold 제거 (모든 결과 반환)
+results = search_documents(query, k=5, score_threshold=None)
+
+# 방법 2: threshold 낮추기
+results = search_documents(query, k=5, score_threshold=0.3)  # 0.3 이상만
+
+# 방법 3: 직접 vector_client 사용 (디버깅용)
+results = vector_client.similarity_search_with_score(query=query, k=k)
+for doc, distance in results:
+    similarity = max(0.0, 1.0 - (distance / 2.0))  # 거리를 유사도로 변환
+    print(f"유사도: {similarity:.3f}, 거리: {distance:.3f}")
 ```
 
 **디버깅:**

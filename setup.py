@@ -1,0 +1,23 @@
+from setuptools import setup, find_packages
+
+setup(
+    name="rag-bot",
+    version="0.1.0",
+    description="RAG Bot for document Q&A",
+    packages=find_packages(),
+    python_requires=">=3.10",
+    install_requires=[
+        "fastapi==0.104.1",
+        "uvicorn[standard]==0.24.0",
+        "langchain==0.1.0",
+        "langchain-openai==0.0.2",
+        "chromadb==0.4.18",
+        "pypdf==3.17.1",
+        "python-docx==1.1.0",
+        "pandas==2.1.3",
+        "python-multipart==0.0.6",
+        "python-dotenv==1.0.0",
+        "tiktoken==0.5.2",
+    ],
+)
+
