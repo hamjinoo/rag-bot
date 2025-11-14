@@ -1,9 +1,35 @@
+import warnings
+import logging
+import sys
+import os
+from contextlib import contextmanager
 from langchain_openai import OpenAIEmbeddings
 from langchain_community.vectorstores import Chroma
 from langchain.schema import Document
 from typing import List, Tuple
-import os
 from dotenv import load_dotenv
+
+# ChromaDB 텔레메트리 경고 무시
+warnings.filterwarnings("ignore", category=UserWarning, module="chromadb")
+warnings.filterwarnings("ignore", message=".*Failed to send telemetry event.*")
+
+# ChromaDB 로거 레벨 조정
+logging.getLogger("chromadb").setLevel(logging.ERROR)
+
+# 텔레메트리 비활성화 (환경 변수)
+os.environ.setdefault("ANONYMIZED_TELEMETRY", "False")
+
+# stderr 출력 필터링 함수
+@contextmanager
+def suppress_stderr():
+    """ChromaDB 텔레메트리 오류 메시지 억제"""
+    import io
+    original_stderr = sys.stderr
+    try:
+        sys.stderr = io.StringIO()
+        yield
+    finally:
+        sys.stderr = original_stderr
 
 load_dotenv()
 
@@ -13,12 +39,13 @@ embedding = OpenAIEmbeddings(
     openai_api_key=os.getenv("OPENAI_API_KEY")
 )
 
-# Chroma 벡터 DB 클라이언트
-vector_client = Chroma(
-    collection_name="rag_documents",
-    embedding_function=embedding,
-    persist_directory=os.getenv("VECTOR_DB_PATH", "./chroma"),
-)
+# Chroma 벡터 DB 클라이언트 초기화 (텔레메트리 오류 억제)
+with suppress_stderr():
+    vector_client = Chroma(
+        collection_name="rag_documents",
+        embedding_function=embedding,
+        persist_directory=os.getenv("VECTOR_DB_PATH", "./chroma"),
+    )
 
 def add_documents(chunks: List[Document], clear_existing: bool = False):
     """
@@ -34,13 +61,14 @@ def add_documents(chunks: List[Document], clear_existing: bool = False):
     if clear_existing:
         try:
             # ChromaDB 컬렉션 초기화
-            vector_client.delete_collection()
-            # 새로 생성
-            vector_client = Chroma(
-                collection_name="rag_documents",
-                embedding_function=embedding,
-                persist_directory=os.getenv("VECTOR_DB_PATH", "./chroma"),
-            )
+            with suppress_stderr():
+                vector_client.delete_collection()
+                # 새로 생성
+                vector_client = Chroma(
+                    collection_name="rag_documents",
+                    embedding_function=embedding,
+                    persist_directory=os.getenv("VECTOR_DB_PATH", "./chroma"),
+                )
             print("🗑️  기존 벡터 DB 데이터 삭제됨")
         except Exception as e:
             print(f"⚠️  컬렉션 삭제 실패 (이미 비어있을 수 있음): {e}")
