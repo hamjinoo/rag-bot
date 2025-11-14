@@ -2,8 +2,13 @@ import warnings
 import logging
 import sys
 import os
-from contextlib import contextmanager
-from io import StringIO
+import asyncio
+import json
+from fastapi import FastAPI, Request
+from app.security.kakao import verify_signature
+from app.formatters.kakao import format_skill_response, format_error_response
+from app.vector_store import search_documents
+from app.llm import generate_answer
 
 # ChromaDB 텔레메트리 경고 무시 (import 전에 설정)
 warnings.filterwarnings("ignore", category=UserWarning, module="chromadb")
@@ -12,80 +17,61 @@ warnings.filterwarnings("ignore", message=".*Failed to send telemetry event.*")
 # ChromaDB 로거 레벨 조정
 logging.getLogger("chromadb").setLevel(logging.ERROR)
 
-# 텔레메트리 비활성화 환경 변수 설정 (import 전)
+# 텔레메트리 비활성화 환경 변수 설정
 os.environ.setdefault("ANONYMIZED_TELEMETRY", "False")
 
-# stderr 필터링 (ChromaDB import 시 경고 억제)
-_original_stderr = sys.stderr
+# FastAPI 앱 초기화
+app = FastAPI(title="RAG 챗봇 API")
 
-class FilteredStderr:
-    """ChromaDB 텔레메트리 오류만 필터링하는 stderr wrapper"""
-    def __init__(self, original):
-        self.original = original
-        
-    def write(self, text):
-        # ChromaDB 텔레메트리 오류 메시지가 아니면 출력
-        if "Failed to send telemetry event" not in text:
-            self.original.write(text)
-            
-    def flush(self):
-        self.original.flush()
-        
-    def __getattr__(self, name):
-        return getattr(self.original, name)
+@app.get("/")
+def health_check():
+    """헬스 체크 엔드포인트"""
+    return {"status": "ok", "message": "RAG 챗봇 서버 실행 중"}
 
-# ChromaDB import 전에 stderr 필터링 설정
-sys.stderr = FilteredStderr(_original_stderr)
-
-# 이제 ChromaDB 모듈 import (경고 억제됨)
-from fastapi import FastAPI, Request
-from app.clients.telegram import send_message, send_typing
-from app.formatters.telegram import format_answer
-from app.vector_store import search_documents
-from app.llm import generate_answer
-
-# stderr 복원
-sys.stderr = _original_stderr
-
-app = FastAPI()
-
-@app.post("/telegram/webhook")
-async def telegram_webhook(request: Request):
+@app.post("/kakao/router")
+async def kakao_router(request: Request):
     """
-    텔레그램 Webhook 엔드포인트
+    카카오 i 오픈빌더 스킬 서버 엔드포인트
     """
     try:
-        update = await request.json()
+        # 요청 본문 읽기 (시그니처 검증용)
+        body = await request.body()
         
-        # 메시지 추출
-        message = update.get("message") or {}
-        chat_id = message.get("chat", {}).get("id")
-        text = message.get("text", "").strip()
+        # 시그니처 검증
+        signature = request.headers.get("X-Kakao-Signature", "")
+        if not verify_signature(body, signature):
+            return {"error": "Invalid signature"}, 403
         
-        if not text:
-            return {"ok": True}
+        # JSON 파싱 (body를 직접 파싱)
+        payload = json.loads(body.decode("utf-8"))
         
-        # "입력 중..." 표시
-        await send_typing(chat_id)
+        # 사용자 질문 추출
+        user_request = payload.get("userRequest", {})
+        question = user_request.get("utterance", "").strip()
         
-        # RAG 파이프라인 실행
-        results = search_documents(text, k=5)
-        answer_data = await generate_answer(text, results)
+        if not question:
+            return format_error_response("질문을 입력해 주세요.")
         
-        # 텔레그램 포맷으로 변환
-        formatted = format_answer(
+        # RAG 파이프라인 실행 (타임아웃 3초)
+        results = search_documents(question, k=5)
+        answer_data = await asyncio.wait_for(
+            generate_answer(question, results),
+            timeout=3.0  # 카카오는 5초 이내 응답 필수
+        )
+        
+        # 카카오 포맷으로 변환
+        return format_skill_response(
             answer_data["answer"],
             answer_data["sources"]
         )
-        
-        # 메시지 전송
-        await send_message(chat_id, formatted)
-        
-        return {"ok": True}
     
+    except asyncio.TimeoutError:
+        return format_error_response("응답 시간이 초과되었습니다.")
     except Exception as e:
         print(f"❌ 에러: {e}")
-        return {"ok": False, "error": str(e)}
+        import traceback
+        traceback.print_exc()
+        return format_error_response("처리 중 오류가 발생했습니다.")
 
 if __name__ == "__main__":
     import uvicorn

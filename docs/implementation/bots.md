@@ -347,13 +347,22 @@ def escape_markdown(text: str) -> str:
 **파일 수정:** `app/main.py`
 
 ```python
+import warnings
+import logging
+import os
 from fastapi import FastAPI, Request
 from app.clients.telegram import send_message, send_typing
 from app.formatters.telegram import format_answer
 from app.vector_store import search_documents
 from app.llm import generate_answer
 
-app = FastAPI()
+# ChromaDB 텔레메트리 경고 무시
+warnings.filterwarnings("ignore", category=UserWarning, module="chromadb")
+warnings.filterwarnings("ignore", message=".*Failed to send telemetry event.*")
+logging.getLogger("chromadb").setLevel(logging.ERROR)
+os.environ.setdefault("ANONYMIZED_TELEMETRY", "False")
+
+app = FastAPI(title="RAG 챗봇 API")
 
 @app.post("/telegram/webhook")
 async def telegram_webhook(request: Request):
@@ -391,7 +400,20 @@ async def telegram_webhook(request: Request):
     
     except Exception as e:
         print(f"❌ 에러: {e}")
+        import traceback
+        traceback.print_exc()
         return {"ok": False, "error": str(e)}
+
+@app.get("/")
+def health_check():
+    """헬스 체크 엔드포인트"""
+    return {"status": "ok", "message": "RAG 챗봇 서버 실행 중"}
+
+# 카카오 라우터는 아래 4-5 섹션 참조
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8000)
 ```
 
 #### 3-4. Webhook 등록
@@ -577,9 +599,13 @@ def format_error_response(error_msg: str) -> dict:
 
 #### 4-5. 카카오 Webhook 엔드포인트
 
-**파일 수정:** `app/main.py` (추가)
+**파일 수정:** `app/main.py` (카카오 라우터 추가)
+
+> **참고**: 이 코드는 기존 `app/main.py` 파일에 추가하는 것입니다. 텔레그램 webhook과 함께 사용할 수 있습니다.
 
 ```python
+import asyncio
+import json
 from app.security.kakao import verify_signature
 from app.formatters.kakao import format_skill_response, format_error_response
 
@@ -597,8 +623,8 @@ async def kakao_router(request: Request):
         if not verify_signature(body, signature):
             return {"error": "Invalid signature"}, 403
         
-        # JSON 파싱
-        payload = await request.json()
+        # JSON 파싱 (body를 직접 파싱 - request.body() 후에는 request.json() 사용 불가)
+        payload = json.loads(body.decode("utf-8"))
         
         # 사용자 질문 추출
         user_request = payload.get("userRequest", {})
@@ -608,7 +634,6 @@ async def kakao_router(request: Request):
             return format_error_response("질문을 입력해 주세요.")
         
         # RAG 파이프라인 실행 (타임아웃 3초)
-        import asyncio
         results = search_documents(question, k=5)
         answer_data = await asyncio.wait_for(
             generate_answer(question, results),
@@ -625,8 +650,12 @@ async def kakao_router(request: Request):
         return format_error_response("응답 시간이 초과되었습니다.")
     except Exception as e:
         print(f"❌ 에러: {e}")
+        import traceback
+        traceback.print_exc()
         return format_error_response("처리 중 오류가 발생했습니다.")
 ```
+
+> **참고**: 서버 시작 코드(`if __name__ == "__main__":`)는 텔레그램 webhook 섹션(3-3)에 이미 포함되어 있습니다. 위 코드는 기존 `app/main.py` 파일에 추가하는 것입니다.
 
 #### 4-6. 오픈빌더에서 테스트
 
@@ -680,6 +709,7 @@ def verify_signature(body: bytes, signature: str) -> bool:
 **확인 사항:**
 - `.env`의 `KAKAO_CHANNEL_SECRET` 정확한가?
 - 요청 본문이 `bytes`로 전달되는가? (JSON 변환 전)
+- `request.body()` 후에는 `request.json()`을 사용할 수 없으므로 `json.loads(body.decode("utf-8"))` 사용
 
 ---
 
